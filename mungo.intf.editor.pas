@@ -1,23 +1,26 @@
 unit mungo.intf.editor;
 
-{$mode delphi}{$H+}
+{$mode objfpc}{$H+}
 
 interface
 
 uses
-  Classes, SysUtils,
+  Classes, SysUtils, fpjson,
 
   Generics.Collections,
 
-  mungo.intf.filepointer;
+  mungo.intf.filepointer,
+  mungo.intf.toolbar;
 
 type
-  TToolBarIntf = class;
-
   { TEditor }
 
+  TEditorContainerAlignment = ( ecaLeft, ecaRight, ecaCenter, ecaBottom );
+
+  // Interface to all mungo editors
   TEditor = class abstract
     protected
+      FContainer: TEditorContainerAlignment;
       FContainerIdx: Integer;
       FControl: TObject;
       FTabIdx: Integer;
@@ -29,49 +32,56 @@ type
       destructor Destroy; override;
 
       procedure EditorFocus; virtual; abstract;
+      procedure RestoreState( AState: TJSONObject ); virtual;
+      function SaveState: TJSONObject; virtual;
 
+      property Container: TEditorContainerAlignment read FContainer write FContainer;
       property Control: TObject read FControl write FControl;
       property TabIdx: Integer read FTabIdx write FTabIdx;
-      property ContainerIdx: Integer read FContainerIdx write FContainerIdx;
       property ToolBar: TToolBarIntf read FToolBar write FToolBar;
   end;
 
   { TEditorTool }
 
+  // Generic tool that is does not have a context to an active file editor
   TEditorTool = class abstract ( TEditor )
     class function GetToolName: String; virtual; abstract;
   end;
 
   { TEditorContextTool }
 
+  // A tool that has a context to the active file editor. It is notified when another editor becomes focused.
   TEditorContextTool = class abstract ( TEditorTool )
-    private
+    protected
       FContext: TEditor;
 
-    protected
       procedure SetContext(AValue: TEditor); virtual;
+
+    public
+      constructor Create; override;
 
     published
       property Context: TEditor read FContext write SetContext;
   end;
 
-  TEditorContextToolClass = class of TEditorContextTool;
   TEditorToolClass = class of TEditorTool;
+  TEditorContextToolClass = class of TEditorContextTool;
 
   { TEditorToolList }
 
-  TEditorToolList = class ( TObjectList < TEditorTool >)
-    function FindByTabIdx( AContainerIdx: Integer; AIdx: Integer ): Integer;
+  TEditorToolList = class ( specialize TObjectList < TEditorTool >)
+    function FindByTabCtrl( AControl: TObject ): Integer;
+    function FindByTabIdx(AContainer: TEditorContainerAlignment; AIdx: Integer): Integer;
     function FindByClass( AToolClass: TEditorToolClass ): Integer;
   end;
 
   { TEditorContextToolList }
 
-  TEditorContextToolList = class ( TObjectList < TEditorContextTool >)
-    function FindByTabIdx( AContainerIdx: Integer; AIdx: Integer ): Integer;
+  TEditorContextToolList = class ( specialize TObjectList < TEditorContextTool >)
+    function FindByTabCtrl( AControl: TObject ): Integer;
+    function FindByTabIdx(AContainer: TEditorContainerAlignment; AIdx: Integer): Integer;
     function FindByClass( AToolClass: TEditorContextToolClass ): Integer;
   end;
-
 
   { TEditorFile }
 
@@ -93,6 +103,7 @@ type
       constructor Create( ARootControl: TObject; AFileInfo: TFilePointer ); virtual; overload;
       constructor Create( ARootControl: TObject; AFileName: String ); overload;
 
+      function SaveState: TJSONObject; override;
       class function FileMatch( AFileInfo: TFilePointer ): Boolean; virtual; abstract;
 
       property FileInfo: TFilePointer read FFileInfo;
@@ -102,9 +113,12 @@ type
       property Persistent: Boolean read FPersistent write SetPersistent;
   end;
 
+  TEditorFileClass = class of TEditorFile;
+
   { TEditorFileList }
 
-  TEditorFileList = class ( TObjectList < TEditorFile >)
+  TEditorFileList = class ( specialize TObjectList < TEditorFile >)
+    function FindByTabCtrl( AControl: TObject ): Integer;
     function FindByTabIdx( AContainerIdx: Integer; AIdx: Integer ): Integer;
     function FindByTabFilePointer( AFilePointer: TFilePointer ): Integer;
   end;
@@ -130,8 +144,9 @@ type
       function AddToolTab( AClass: TEditorToolClass ): TEditorTool; virtual; abstract;
       function ActivateOrAddToolTab( AClass: TEditorToolClass ): TEditorTool; virtual; abstract;
       function AddContextToolTab( AClass: TEditorContextToolClass ): TEditorContextTool; virtual; abstract;
-      function AddContextToolTabBottom( AClass: TEditorContextToolClass ): TEditorContextTool; virtual; abstract;
       function CreateToolBar( ARootControl: TObject ): TToolBarIntf; virtual; abstract;
+      function SaveState: TJSONObject; virtual;
+      procedure RestoreState( AState: TJSONObject ); virtual;
 
     published
       property FileEditors: TEditorFileList read FFileEditors;
@@ -140,139 +155,18 @@ type
       property ContextTools: TEditorContextToolList read FContextTools;
   end;
 
-  TSourceTreeNodeData = record
-    NodeType: Integer;
-    Caption: String;
-    TextPos: TPoint;
-  end;
-
-  PSourceTreeNodeData = ^TSourceTreeNodeData;
-
-  { TSourceTreeIntf }
-
-  TSourceTreeIntf = class abstract ( TEditorContextTool )
-    public
-      constructor Create; override;
-      destructor Destroy; override;
-
-      function AddNode( AParent: Pointer; ANodeType: Integer; AText: String; ATextPos: TPoint ): Pointer; virtual; abstract;
-      procedure RemoveNode( ANode: Pointer ); virtual; abstract;
-      procedure ClearNodes; virtual; abstract;
-  end;
-
-  TMessagesData = record
-    MsgType: Integer;
-    Message: String;
-    TextPos: TPoint;
-  end;
-
-  PMessageData = ^TMessagesData;
-
-
-  { TMessageIntf }
-
-  TMessageIntf = class abstract ( TEditorContextTool )
-    public
-      constructor Create; override;
-      destructor Destroy; override;
-
-      function AddMessage( AMsgType: Integer; AText: String; ATextPos: TPoint ): Pointer; virtual; abstract;
-      procedure ClearMessages; virtual; abstract;
-  end;
-
-  { TAction }
-
-  TAction = class ( TPersistent ) // implements FPObserver
-    private
-      FCaption: String;
-      FEnabled: Boolean;
-      FGlyphIndex: Integer;
-      FHint: String;
-      FImages: TPersistent;
-      FOnExecute: TNotifyEvent;
-      FIsUpdating: Boolean;
-
-    protected
-      procedure SeString(AValue: String); virtual;
-      procedure SetGlyphIndex(AValue: Integer); virtual;
-      procedure SetHint(AValue: String); virtual;
-      procedure SetImages(AValue: TPersistent); virtual;
-      procedure SetEnabled(AValue: Boolean); virtual;
-      procedure DoNotifyOnChanged;
-
-    public
-      constructor Create( ACaption: String; AOnExecute: TNotifyEvent; const AHint: String = ''; const AGlyphIndex: Integer = -1 ); virtual;
-
-      procedure Execute;
-      procedure BeginUpdate;
-      procedure EndUpdate;
-
-    published
-      property OnExecute: TNotifyEvent read FOnExecute write FOnExecute;
-      property GlyphIndex: Integer read FGlyphIndex write SetGlyphIndex;
-      property Images: TPersistent read FImages write SetImages;
-      property Caption: String read FCaption write SeString;
-      property Hint: String read FHint write SetHint;
-      property Enabled: Boolean read FEnabled write SetEnabled;
-  end;
-
-  TActionList = class ( TObjectList < TEditorFile >);
-
-  { TActionIntf }
-
-  TActionIntf = class
-    private
-      FActions: TActionList;
-
-    public
-      procedure RegisterAction( AAction: TAction ); virtual;
-      procedure UnregisterAction( AAction: TAction ); virtual;
-
-    published
-      property Actions: TActionList read FActions;
-  end;
-
-  { TToolBarIntf }
-
-  TToolBarIntf = class
-    protected
-      FControl: TObject;
-
-    public
-      function AddButton( AAction: TAction ): TObject; virtual; abstract;
-      function AddSpacer(): TObject; virtual; abstract;
-
-    published
-      property Control: TObject read FControl write FControl;
-  end;
-
-
 var
   EditorIntf: TEditorIntf = nil;
-  SourceTreeIntf: TSourceTreeIntf = nil;
-  MessageIntf: TMessageIntf = nil;
-  ActionIntf: TActionIntf = nil;
 
 
 implementation
-
-{ TActionIntf }
-
-procedure TActionIntf.RegisterAction(AAction: TAction);
-begin
-
-end;
-
-procedure TActionIntf.UnregisterAction(AAction: TAction);
-begin
-
-end;
 
 { TEditor }
 
 constructor TEditor.Create(ARootControl: TObject);
 begin
   Control:= ARootControl;
+  Container:= ecaLeft;
   Create;
 end;
 
@@ -283,117 +177,23 @@ begin
   inherited Destroy;
 end;
 
-{ TAction }
-
-procedure TAction.SetEnabled(AValue: Boolean);
+procedure TEditor.RestoreState(AState: TJSONObject);
 begin
-  if FEnabled=AValue then Exit;
-  FEnabled:=AValue;
-
-  DoNotifyOnChanged;
+  Container:= TEditorContainerAlignment( AState.Get( 'container', 0 ));
 end;
 
-procedure TAction.DoNotifyOnChanged;
+function TEditor.SaveState: TJSONObject;
 begin
-  if ( not FIsUpdating ) then
-    FPONotifyObservers( Self, ooChange, nil );
-end;
-
-constructor TAction.Create(ACaption: String; AOnExecute: TNotifyEvent; const AHint: String; const AGlyphIndex: Integer);
-begin
-  inherited Create;
-
-  BeginUpdate;
-  Caption:= ACaption;
-  OnExecute:= AOnExecute;
-  Hint:= AHint;
-  GlyphIndex:= AGlyphIndex;
-  Enabled:= True;
-  EndUpdate;
-end;
-
-procedure TAction.Execute;
-begin
-  if ( Assigned( OnExecute )) then
-    OnExecute( Self );
-end;
-
-procedure TAction.BeginUpdate;
-begin
-  FIsUpdating:= True;
-end;
-
-procedure TAction.EndUpdate;
-begin
-  FIsUpdating:= False;
-  DoNotifyOnChanged;
-end;
-
-procedure TAction.SeString(AValue: String);
-begin
-  if FCaption=AValue then Exit;
-  FCaption:=AValue;
-
-  DoNotifyOnChanged;
-end;
-
-procedure TAction.SetGlyphIndex(AValue: Integer);
-begin
-  if FGlyphIndex=AValue then Exit;
-  FGlyphIndex:=AValue;
-
-  DoNotifyOnChanged;
-end;
-
-procedure TAction.SetHint(AValue: String);
-begin
-  if FHint=AValue then Exit;
-  FHint:=AValue;
-
-  DoNotifyOnChanged;
-end;
-
-procedure TAction.SetImages(AValue: TPersistent);
-begin
-  if FImages=AValue then Exit;
-  FImages:=AValue;
-
-  DoNotifyOnChanged;
-end;
-
-{ TMessageIntf }
-
-constructor TMessageIntf.Create;
-begin
-  if ( not Assigned( MessageIntf )) then
-    MessageIntf:= Self;
-end;
-
-destructor TMessageIntf.Destroy;
-begin
-  if ( MessageIntf = Self ) then
-    MessageIntf:= nil;
-
-  inherited Destroy;
-end;
-
-{ TSourceTreeIntf }
-
-constructor TSourceTreeIntf.Create;
-begin
-  if ( not Assigned( SourceTreeIntf )) then
-    SourceTreeIntf:= Self;
-end;
-
-destructor TSourceTreeIntf.Destroy;
-begin
-  if ( SourceTreeIntf = Self ) then
-    SourceTreeIntf:= nil;
-
-  inherited Destroy;
+  Result:= TJSONObject.Create();
+  Result.Add( 'container', Integer( Container ));
 end;
 
 { TEditorContextTool }
+
+constructor TEditorContextTool.Create;
+begin
+  Container:= ecaRight;
+end;
 
 procedure TEditorContextTool.SetContext(AValue: TEditor);
 begin
@@ -403,14 +203,27 @@ end;
 
 { TEditorContextToolList }
 
-function TEditorContextToolList.FindByTabIdx(AContainerIdx: Integer; AIdx: Integer): Integer;
+function TEditorContextToolList.FindByTabCtrl(AControl: TObject): Integer;
 var
   i: Integer;
 begin
   Result:= -1;
 
   for i:= 0 to Count - 1 do
-    if (( Items[ i ].ContainerIdx = AContainerIdx ) and (  Items[ i ].TabIdx = AIdx )) then begin
+    if ( Items[ i ].Control = AControl ) then begin
+      Result:= i;
+      break;
+    end;
+end;
+
+function TEditorContextToolList.FindByTabIdx(AContainer: TEditorContainerAlignment; AIdx: Integer): Integer;
+var
+  i: Integer;
+begin
+  Result:= -1;
+
+  for i:= 0 to Count - 1 do
+    if (( Items[ i ].Container = AContainer ) and ( Items[ i ].TabIdx = AIdx )) then begin
       Result:= i;
       break;
     end;
@@ -431,14 +244,27 @@ end;
 
 { TEditorToolList }
 
-function TEditorToolList.FindByTabIdx(AContainerIdx: Integer; AIdx: Integer): Integer;
+function TEditorToolList.FindByTabCtrl(AControl: TObject): Integer;
 var
   i: Integer;
 begin
   Result:= -1;
 
   for i:= 0 to Count - 1 do
-    if (( Items[ i ].ContainerIdx = AContainerIdx ) and (  Items[ i ].TabIdx = AIdx )) then begin
+    if ( Items[ i ].Control = AControl ) then begin
+      Result:= i;
+      break;
+    end;
+end;
+
+function TEditorToolList.FindByTabIdx(AContainer: TEditorContainerAlignment; AIdx: Integer): Integer;
+var
+  i: Integer;
+begin
+  Result:= -1;
+
+  for i:= 0 to Count - 1 do
+    if (( Items[ i ].Container = AContainer ) and (  Items[ i ].TabIdx = AIdx )) then begin
       Result:= i;
       break;
     end;
@@ -459,6 +285,19 @@ end;
 
 
 { TEditorFileList }
+
+function TEditorFileList.FindByTabCtrl(AControl: TObject): Integer;
+var
+  i: Integer;
+begin
+  Result:= -1;
+
+  for i:= 0 to Count - 1 do
+    if ( Items[ i ].Control = AControl ) then begin
+      Result:= i;
+      break;
+    end;
+end;
 
 function TEditorFileList.FindByTabIdx( AContainerIdx: Integer; AIdx: Integer ): Integer;
 var
@@ -510,11 +349,19 @@ begin
     Persistent:= True;
 end;
 
+function TEditorFile.SaveState: TJSONObject;
+begin
+  Result:= inherited SaveState;
+  Result.Add( 'file', FileInfo.FileName );
+  Result.Add( 'class', ClassName );
+end;
+
 
 constructor TEditorFile.Create(ARootControl: TObject; AFileInfo: TFilePointer);
 begin
   FFileInfo:= AFileInfo;
   inherited Create( ARootControl );
+  Container:= ecaCenter;
 end;
 
 constructor TEditorFile.Create(ARootControl: TObject; AFileName: String);
@@ -547,6 +394,101 @@ begin
   FreeAndNil( FTools );
   FreeAndNil( FContextTools );
   inherited Destroy;
+end;
+
+function TEditorIntf.SaveState: TJSONObject;
+  function SaveFileEditors: TJSONArray;
+  var
+    Editor: TEditorFile;
+  begin
+    Result:= TJSONArray.Create();
+    for Editor in FileEditors do
+      Result.Add( Editor.SaveState );
+  end;
+
+  function SaveTools: TJSONObject;
+  var
+    Editor: TEditorTool;
+  begin
+    Result:= TJSONObject.Create();
+    for Editor in Tools do
+      Result.Add( Editor.ClassName, Editor.SaveState );
+  end;
+
+  function SaveContextTools: TJSONObject;
+  var
+    Editor: TEditorContextTool;
+  begin
+    Result:= TJSONObject.Create();
+    for Editor in ContextTools do
+      Result.Add( Editor.ClassName, Editor.SaveState );
+  end;
+
+begin
+  Result:= TJSONObject.Create();
+
+  Result.Add( 'file-editors', SaveFileEditors );
+  Result.Add( 'tools', SaveTools );
+  Result.Add( 'context-tools', SaveContextTools );
+end;
+
+procedure TEditorIntf.RestoreState(AState: TJSONObject);
+  procedure RestoreTools( AState: TJSONObject );
+  var
+    Editor: TEditorTool;
+    J: TJSONObject;
+  begin
+    for Editor in Tools do begin
+      J:= AState.Get( Editor.ClassName, default( TJSONObject ));
+      if ( Assigned( J )) then
+         Editor.RestoreState( J );
+    end;
+  end;
+
+  procedure RestoreContextTools( AState: TJSONObject );
+  var
+    Editor: TEditorContextTool;
+    J: TJSONObject;
+  begin
+    for Editor in ContextTools do begin
+      J:= AState.Get( Editor.ClassName, default( TJSONObject ));
+      if ( Assigned( J )) then
+         Editor.RestoreState( J );
+    end;
+  end;
+
+  procedure RestoreFileEditors( AState: TJSONArray );
+  var
+    Editor: TEditorFile;
+    S: TJSONUnicodeStringType;
+    F: TJSONEnum;
+  begin
+    for F in AState do begin
+      S:= TJSONObject( F.Value ).Get( 'file', '' );
+
+      if ( S > '' ) then begin
+         Editor:= AddFileTab( FilePointers.GetFilePointer( S ));
+         Editor.RestoreState( TJSONObject( F.Value ));
+      end;
+    end;
+  end;
+
+
+var
+  j: TJSONObject;
+  ja: TJSONArray;
+begin
+  j:= AState.Get( 'tools', default( TJSONObject ));
+  if ( Assigned( j )) then
+    RestoreTools( j );
+
+  j:= AState.Get( 'context-tools', default( TJSONObject ));
+  if ( Assigned( j )) then
+    RestoreContextTools( j );
+
+  ja:= AState.Get( 'file-editors', default( TJSONArray ));
+  if ( Assigned( ja )) then
+    RestoreFileEditors( ja );
 end;
 
 end.

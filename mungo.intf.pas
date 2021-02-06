@@ -8,12 +8,14 @@ unit mungo.intf;
 interface
 
 uses
-  mungo.intf.editor, mungo.intf.filepointer, LazarusPackageIntf;
+  mungo.intf.action, mungo.intf.editor, mungo.intf.extension, mungo.intf.filepointer, mungo.intf.git, mungo.intf.package, 
+  mungo.intf.toolbar, mungo.intf.jsonfile, LazarusPackageIntf;
 
 implementation
 
 procedure Register;
 begin
+  RegisterUnit('mungo.intf.extension', @mungo.intf.extension.Register);
 end;
 
 initialization

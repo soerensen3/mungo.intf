@@ -11,29 +11,42 @@
     </CompilerOptions>
     <Files>
       <Item>
+        <Filename Value="mungo.intf.action.pas"/>
+        <UnitName Value="mungo.intf.action"/>
+      </Item>
+      <Item>
         <Filename Value="mungo.intf.editor.pas"/>
         <UnitName Value="mungo.intf.editor"/>
+      </Item>
+      <Item>
+        <Filename Value="mungo.intf.extension.pas"/>
+        <HasRegisterProc Value="True"/>
+        <UnitName Value="mungo.intf.extension"/>
       </Item>
       <Item>
         <Filename Value="mungo.intf.filepointer.pas"/>
         <UnitName Value="mungo.intf.filepointer"/>
       </Item>
+      <Item>
+        <Filename Value="mungo.intf.git.pas"/>
+        <UnitName Value="mungo.intf.git"/>
+      </Item>
+      <Item>
+        <Filename Value="mungo.intf.package.pas"/>
+        <UnitName Value="mungo.intf.package"/>
+      </Item>
+      <Item>
+        <Filename Value="mungo.intf.toolbar.pas"/>
+        <UnitName Value="mungo.intf.toolbar"/>
+      </Item>
+      <Item>
+        <Filename Value="mungo.intf.jsonfile.pas"/>
+        <UnitName Value="mungo.intf.jsonfile"/>
+      </Item>
     </Files>
     <RequiredPkgs>
       <Item>
-        <PackageName Value="atflatcontrols_package"/>
-      </Item>
-      <Item>
-        <PackageName Value="LCLBase"/>
-      </Item>
-      <Item>
-        <PackageName Value="LCL"/>
-      </Item>
-      <Item>
         <PackageName Value="LazUtils"/>
-      </Item>
-      <Item>
-        <PackageName Value="FCL"/>
       </Item>
     </RequiredPkgs>
     <UsageOptions>
